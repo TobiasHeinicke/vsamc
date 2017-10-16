@@ -470,9 +470,11 @@ func readBrowserEvents(winid int, bodyFile *os.File, queueWinid int, queueBody *
 						err := conn.Add(filePath)
 						if mpdClosedConn(err) {
 							conn = createMpdConn()
-							conn.Add(filePath)
+							err = conn.Add(filePath)
 						}
-						refresh(queueWinid, queueBody, true)
+						if err == nil {
+							refresh(queueWinid, queueBody, true)
+						}
 					}
 				}
 			} else {
