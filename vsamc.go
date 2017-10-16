@@ -173,6 +173,46 @@ func relPathFromAbsPath(absPath string) string {
 	return slices[len(slices)-1]
 }
 
+func convertForPrint(path string) string {
+	s := path
+	s = strings.Replace(s, "(", "〔", -1)
+	s = strings.Replace(s, ")", "〕", -1)
+	s = strings.Replace(s, "&", "⊕", -1)
+	s = strings.Replace(s, "?", "¿", -1)
+	s = strings.Replace(s, "'", "´", -1)
+	s = strings.Replace(s, "[", "【", -1)
+	s = strings.Replace(s, "]", "】", -1)
+	s = strings.Replace(s, ":", "᛬", -1)
+	s = strings.Replace(s, "<", "〈", -1)
+	s = strings.Replace(s, ">", "〉", -1)
+	s = strings.Replace(s, "+", "±", -1)
+	s = strings.Replace(s, ".", "。", -1)
+	s = strings.Replace(s, "-", "‒", -1)
+	s = strings.Replace(s, ",", "、", -1)
+	s = strings.Replace(s, " ", "⋯", -1)
+	return s
+}
+
+func convertFromPrint(s string) string {
+	path := s
+	path = strings.Replace(path, "〔", "(", -1)
+	path = strings.Replace(path, "〕", ")", -1)
+	path = strings.Replace(path, "⊕", "&", -1)
+	path = strings.Replace(path, "¿", "?", -1)
+	path = strings.Replace(path, "´", "'", -1)
+	path = strings.Replace(path, "【", "[", -1)
+	path = strings.Replace(path, "】", "]", -1)
+	path = strings.Replace(path, "᛬", ":", -1)
+	path = strings.Replace(path, "〈", "<", -1)
+	path = strings.Replace(path, "〉", ">", -1)
+	path = strings.Replace(path, "±", "+", -1)
+	path = strings.Replace(path, "。", ".", -1)
+	path = strings.Replace(path, "‒", "-", -1)
+	path = strings.Replace(path, "、", ",", -1)
+	path = strings.Replace(path, "⋯", " ", -1)
+	return path
+}
+
 func showBrowser(bodyFile *os.File, uri string, winid int) bool {
 	trimmedPath := strings.Trim(uri, "/")
 	attrs, err := conn.ListInfo(trimmedPath)
@@ -189,14 +229,14 @@ func showBrowser(bodyFile *os.File, uri string, winid int) bool {
 	}
 
 	clearBody(winid, bodyFile)
-	bodyFile.WriteString(fmt.Sprintf("current path: /%s\n", trimmedPath))
+	bodyFile.WriteString(fmt.Sprintf("current path: /%s\n", convertForPrint(trimmedPath)))
 	for _, attr := range attrs {
 		dir := attr["directory"]
 		file := attr["file"]
 		if dir != "" {
-			bodyFile.WriteString(fmt.Sprintf("%s\n", relPathFromAbsPath(dir)))
+			bodyFile.WriteString(fmt.Sprintf("%s\n", convertForPrint(relPathFromAbsPath(dir))))
 		} else {
-			bodyFile.WriteString(fmt.Sprintf("%s\n", relPathFromAbsPath(file)))
+			bodyFile.WriteString(fmt.Sprintf("%s\n", convertForPrint(relPathFromAbsPath(file))))
 		}
 	}
 	return true
@@ -425,6 +465,7 @@ func readBrowserEvents(winid int, bodyFile *os.File, queueWinid int, queueBody *
 	for !quit && scanner.Scan() {
 		evt, parsed := parseEvent(scanner.Text())
 		if parsed {
+			evt.text = convertFromPrint(evt.text)
 			if evt.middlemouse {
 				switch evt.text {
 				case "Close":
