@@ -15,6 +15,7 @@ import (
 var conn *mpd.Client
 var browserWinid int
 var currentPath string
+var quit bool
 
 type event struct {
 	middlemouse bool
@@ -260,12 +261,13 @@ func readEvents(winid int, bodyFile *os.File) {
 	defer file.Close()
 
 	scanner := bufio.NewScanner(file)
-	for scanner.Scan() {
+	for !quit && scanner.Scan() {
 		evt, parsed := parseEvent(scanner.Text())
 		if parsed {
 			if evt.middlemouse {
 				switch evt.text {
 				case "Quit":
+					quit = true
 					deleteWindow(winid)
 					if browserWinid != -1 {
 						deleteWindow(browserWinid)
@@ -420,7 +422,7 @@ func readBrowserEvents(winid int, bodyFile *os.File, queueWinid int, queueBody *
 	defer file.Close()
 
 	scanner := bufio.NewScanner(file)
-	for scanner.Scan() {
+	for !quit && scanner.Scan() {
 		evt, parsed := parseEvent(scanner.Text())
 		if parsed {
 			if evt.middlemouse {
@@ -487,7 +489,7 @@ func readBrowserEvents(winid int, bodyFile *os.File, queueWinid int, queueBody *
 		}
 	}
 
-	if err := scanner.Err(); err != nil {
+	if err := scanner.Err(); err != nil && !quit {
 		panic(err)
 	}
 }
@@ -501,6 +503,7 @@ func refresh(winid int, bodyFile *os.File, full bool) {
 }
 
 func main() {
+	quit = false
 	conn = createMpdConn()
 	defer conn.Close()
 
