@@ -73,11 +73,7 @@ func bodyLength(winid int) int {
 
 func clearBody(winid int, file *os.File) {
 	len := bodyLength(winid)
-	str := ""
-	for i := 0; i <= len; i++ {
-		str += "\b"
-	}
-	file.WriteString(str)
+	file.WriteString(strings.Repeat("\b", len))
 }
 
 func createWindow() int {
