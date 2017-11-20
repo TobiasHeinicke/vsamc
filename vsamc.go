@@ -3,7 +3,7 @@ package main
 import (
 	"bufio"
 	"fmt"
-	"github.com/fhs/gompd/mpd"
+	"github.com/TobiasHeinicke/gompd/mpd"
 	"io/ioutil"
 	"log"
 	"os"
@@ -415,6 +415,32 @@ func readEvents(winid int, bodyFile *os.File) {
 								}
 							}
 							refresh(winid, bodyFile, true)
+						}
+					} else if strings.HasPrefix(evt.text, "Fav") {
+						slices := strings.Fields(evt.text)
+						if len(slices) != 2 {
+							break // malfromed Fav <pos> command
+						}
+						i, err := strconv.Atoi(slices[1])
+						if err == nil {
+							attrs, err := conn.PlaylistInfo(i, -1)
+							if err != nil {
+								if mpdClosedConn(err) {
+									conn = createMpdConn()
+									attrs, err = conn.PlaylistInfo(i, -1)
+									if err != nil {
+										log.Fatal(err)
+									}
+								} else {
+									fmt.Println(err.Error())
+								}
+							}
+
+							uri := attrs[0]["file"]
+							err = conn.SetSticker(uri, "vsamc", "fav")
+							if err != nil {
+								fmt.Fprintf(os.Stderr, "Got error on setting sticker for %s: %s\n", uri, err.Error())
+							}
 						}
 					} else {
 						i, err := strconv.Atoi(evt.text)
