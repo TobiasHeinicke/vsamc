@@ -410,7 +410,19 @@ func readEvents(winid int, bodyFile *os.File) {
 			} else {
 				i, err := strconv.Atoi(evt.text)
 				if err == nil {
-					attrs, _ := conn.PlaylistInfo(i, -1)
+					attrs, err := conn.PlaylistInfo(i, -1)
+					if err != nil {
+						if mpdClosedConn(err) {
+							conn = createMpdConn()
+							attrs, err = conn.PlaylistInfo(i, -1)
+							if err != nil {
+								log.Fatal(err)
+							}
+						} else {
+							fmt.Println(err.Error())
+						}
+					}
+
 					slices := strings.Split(attrs[0]["file"], "/")
 					filePath := ""
 					for i := 0; i < (len(slices) - 1); i++ {
