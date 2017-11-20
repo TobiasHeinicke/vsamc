@@ -337,6 +337,27 @@ func readEvents(winid int, bodyFile *os.File) {
 						conn.Clear()
 					}
 					refresh(winid, bodyFile, true)
+				case "Shuffle":
+					err := conn.Shuffle(-1, -1)
+					if mpdClosedConn(err) {
+						conn = createMpdConn()
+						conn.Shuffle(-1, -1)
+					}
+					refresh(winid, bodyFile, true)
+				case "Consume":
+					err := conn.Consume(true)
+					if mpdClosedConn(err) {
+						conn = createMpdConn()
+						conn.Consume(true)
+					}
+					refresh(winid, bodyFile, false)
+				case "NoConsume":
+					err := conn.Consume(false)
+					if mpdClosedConn(err) {
+						conn = createMpdConn()
+						conn.Consume(false)
+					}
+					refresh(winid, bodyFile, false)
 				case "Refresh":
 					refresh(winid, bodyFile, true)
 				case "Browse":
