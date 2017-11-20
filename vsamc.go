@@ -481,14 +481,16 @@ func readBrowserEvents(winid int, bodyFile *os.File, queueWinid int, queueBody *
 					browserWinid = -1
 					return
 				case "Update":
-					_, err := conn.Update(currentPath)
+					path := strings.Trim(currentPath, " /")
+					_, err := conn.Update(path)
 					fmt.Println("Updating")
 					if mpdClosedConn(err) {
 						conn = createMpdConn()
-						_, err = conn.Update(currentPath)
-						if err != nil {
-							fmt.Fprintf(os.Stderr, "Failure to update: %s\n", err.Error())
-						}
+						_, err = conn.Update(path)
+					}
+
+					if err != nil {
+						fmt.Fprintf(os.Stderr, "Failure to update path '%s': %s\n", path, err.Error())
 					}
 				default:
 					if strings.HasPrefix(evt.text, "Info") {
