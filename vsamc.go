@@ -371,7 +371,7 @@ func readEvents(winid int, bodyFile *os.File) {
 					if strings.HasPrefix(evt.text, "Move") {
 						slices := strings.Fields(evt.text)
 						if len(slices) != 3 {
-							break // malfromed Move <from> <to> command
+							break // malformed Move <from> <to> command
 						}
 						i, err := strconv.Atoi(slices[1])
 						if err == nil {
@@ -388,7 +388,7 @@ func readEvents(winid int, bodyFile *os.File) {
 					} else if strings.HasPrefix(evt.text, "Del") {
 						slices := strings.Fields(evt.text)
 						if len(slices) != 2 {
-							break // malfromed Del <position>
+							break // malformed Del <position>
 						}
 						i, err := strconv.Atoi(slices[1])
 						if err == nil {
@@ -402,7 +402,7 @@ func readEvents(winid int, bodyFile *os.File) {
 					} else if strings.HasPrefix(evt.text, "rDel") {
 						slices := strings.Fields(evt.text)
 						if len(slices) != 3 {
-							break // malfromed rDel <from> <to> command
+							break // malformed rDel <from> <to> command
 						}
 						i, err := strconv.Atoi(slices[1])
 						if err == nil {
@@ -517,7 +517,7 @@ func readBrowserEvents(winid int, bodyFile *os.File, queueWinid int, queueBody *
 					if strings.HasPrefix(evt.text, "Info") {
 						slices := strings.Fields(evt.text)
 						if len(slices) < 2 {
-							return // malfromed Info <filePath>
+							return // malformed Info <filePath>
 						}
 						relPath := ""
 						for i := 1; i < len(slices); i++ {
