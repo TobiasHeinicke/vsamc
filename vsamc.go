@@ -348,6 +348,13 @@ func readEvents(winid int, bodyFile *os.File) {
 						conn.Pause(true)
 					}
 					refresh(winid, bodyFile, false)
+				case "Next":
+					err := conn.Next()
+					if mpdClosedConn(err) {
+						conn = createMpdConn()
+						conn.Next()
+					}
+					refresh(winid, bodyFile, false)
 				case "Clear":
 					err := conn.Clear()
 					if mpdClosedConn(err) {
@@ -604,7 +611,7 @@ func main() {
 		panic(err)
 	}
 	writeName(winid, "samc:")
-	writeTags(winid, "Quit Clear Refresh Play Pause Stop Browse")
+	writeTags(winid, "Quit Clear Play Pause Stop Next Browse Refresh")
 
 	showPlaylist(file)
 	showStatus(file, false)
