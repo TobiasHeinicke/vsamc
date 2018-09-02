@@ -196,6 +196,10 @@ func convertForPrint(path string) string {
 	s = strings.Replace(s, "-", "‒", -1)
 	s = strings.Replace(s, ",", "、", -1)
 	s = strings.Replace(s, " ", "⋯", -1)
+	s = strings.Replace(s, "!", "¡", -1)
+	s = strings.Replace(s, "#", "﹟", -1)
+	s = strings.Replace(s, "{", "﹛", -1)
+	s = strings.Replace(s, "}", "﹜", -1)
 	return s
 }
 
@@ -216,6 +220,10 @@ func convertFromPrint(s string) string {
 	path = strings.Replace(path, "‒", "-", -1)
 	path = strings.Replace(path, "、", ",", -1)
 	path = strings.Replace(path, "⋯", " ", -1)
+	path = strings.Replace(path, "¡", "!", -1)
+	path = strings.Replace(path, "﹟", "#", -1)
+	path = strings.Replace(path, "﹛", "{", -1)
+	path = strings.Replace(path, "﹜", "}", -1)
 	return path
 }
 
