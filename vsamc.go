@@ -152,8 +152,18 @@ func writeTags(winid int, tags string) {
 }
 
 func absPathFromRelPath(wd string, relPath string) string {
-	if relPath == "" {
+	if relPath == "" || relPath == "." {
 		return wd
+	}
+
+	if relPath == ".." {
+		parentPath := strings.TrimRight(wd, " /")
+		// if no parent exists (e.g. wd is "/" do not do anything)
+		if parentPath == "" {
+			return wd
+		}
+		parentPath = parentPath[:strings.LastIndex(parentPath, "/")]
+		return parentPath
 	}
 
 	if relPath[0] == '/' {
@@ -473,7 +483,7 @@ func createNewBrowser(filePath string, queueWinid int, queueBody *os.File) (int,
 		panic(err)
 	}
 	writeName(winid, "browse:")
-	writeTags(winid, "Close Update Info")
+	writeTags(winid, "Close Update Info ..")
 	if showBrowser(file, filePath, winid) {
 		currentPath = filePath
 	} else {
