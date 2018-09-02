@@ -449,7 +449,7 @@ func readEvents(winid int, bodyFile *os.File) {
 								conn = createMpdConn()
 								conn.Play(i)
 							}
-							refresh(winid, bodyFile, true)
+							refresh(winid, bodyFile, false)
 						}
 					}
 				}
