@@ -22,7 +22,6 @@ var browserBodyFile *os.File
 var playlistBodyFile *os.File
 
 var currentPath string
-var quit bool
 
 type event struct {
 	middlemouse bool
@@ -332,7 +331,7 @@ func readPlaylistEvents() {
 	defer file.Close()
 
 	scanner := bufio.NewScanner(file)
-	for !quit && scanner.Scan() {
+	for playlistWinid > 0 && scanner.Scan() {
 		evt, parsed := parseEvent(scanner.Text())
 		if parsed {
 			handlePlaylistEvent(evt)
@@ -348,8 +347,8 @@ func handlePlaylistEvent(evt event) {
 	if evt.middlemouse {
 		switch evt.text {
 		case "Quit":
-			quit = true
 			deleteWindow(playlistWinid)
+			playlistWinid = -1
 			closeBrowser()
 			os.Exit(0)
 		case "Play":
@@ -732,7 +731,8 @@ func main() {
 	var err error
 
 	browserWinid = -1
-	quit = false
+	playlistWinid = -1
+
 	conn = createMpdConn()
 	defer conn.Close()
 
