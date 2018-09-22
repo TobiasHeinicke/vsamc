@@ -13,7 +13,13 @@ import (
 )
 
 var conn *mpd.Client
+
 var browserWinid int
+var playlistWinid int
+
+var browserBodyFile *os.File
+var playlistBodyFile *os.File
+
 var currentPath string
 var quit bool
 
@@ -227,7 +233,7 @@ func convertFromPrint(s string) string {
 	return path
 }
 
-func showBrowser(bodyFile *os.File, uri string, winid int) bool {
+func showPathInBrowser(uri string) bool {
 	trimmedPath := strings.Trim(uri, "/")
 	attrs, err := conn.ListInfo(trimmedPath)
 	if err != nil {
@@ -242,21 +248,21 @@ func showBrowser(bodyFile *os.File, uri string, winid int) bool {
 		}
 	}
 
-	clearBody(winid, bodyFile)
-	bodyFile.WriteString(fmt.Sprintf("current path: /%s\n", convertForPrint(trimmedPath)))
+	clearBody(browserWinid, browserBodyFile)
+	browserBodyFile.WriteString(fmt.Sprintf("current path: /%s\n", convertForPrint(trimmedPath)))
 	for _, attr := range attrs {
 		dir := attr["directory"]
 		file := attr["file"]
 		if dir != "" {
-			bodyFile.WriteString(fmt.Sprintf("%s\n", convertForPrint(relPathFromAbsPath(dir))))
+			browserBodyFile.WriteString(fmt.Sprintf("%s\n", convertForPrint(relPathFromAbsPath(dir))))
 		} else {
-			bodyFile.WriteString(fmt.Sprintf("%s\n", convertForPrint(relPathFromAbsPath(file))))
+			browserBodyFile.WriteString(fmt.Sprintf("%s\n", convertForPrint(relPathFromAbsPath(file))))
 		}
 	}
 	return true
 }
 
-func showPlaylist(file *os.File) {
+func showPlaylist() {
 	attrs, err := conn.PlaylistInfo(-1, -1)
 	if err != nil {
 		if mpdClosedConn(err) {
@@ -279,17 +285,17 @@ func showPlaylist(file *os.File) {
 		minutes := duration / 60
 		seconds := duration % 60
 		if artist == "" || title == "" {
-			file.WriteString(fmt.Sprintf("# %s # %s # %02d:%02d\n", attr["Pos"], attr["file"], minutes, seconds))
+			playlistBodyFile.WriteString(fmt.Sprintf("# %s # %s # %02d:%02d\n", attr["Pos"], attr["file"], minutes, seconds))
 		} else {
-			file.WriteString(fmt.Sprintf("# %s # %s - %s # %02d:%02d\n", attr["Pos"], attr["Artist"], attr["Title"], minutes, seconds))
+			playlistBodyFile.WriteString(fmt.Sprintf("# %s # %s - %s # %02d:%02d\n", attr["Pos"], attr["Artist"], attr["Title"], minutes, seconds))
 		}
 	}
-	file.WriteString(fmt.Sprintf("TOTAL: %d:%02d\n", total/60, total%60))
+	playlistBodyFile.WriteString(fmt.Sprintf("TOTAL: %d:%02d\n", total/60, total%60))
 }
 
-func showStatus(file *os.File, refresh bool) {
+func showStatus(refresh bool) {
 	if refresh {
-		file.WriteString("\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b")
+		playlistBodyFile.WriteString("\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b")
 	}
 	attrs, err := conn.Status()
 	if err != nil {
@@ -302,13 +308,11 @@ func showStatus(file *os.File, refresh bool) {
 		}
 	}
 
-	file.WriteString(fmt.Sprintf("State: %-5s Song: %-5s Time: %-20s\n", attrs["state"], attrs["song"], attrs["time"]))
+	playlistBodyFile.WriteString(fmt.Sprintf("State: %-5s Song: %-5s Time: %-20s\n", attrs["state"], attrs["song"], attrs["time"]))
 }
 
-func readEvents(winid int, bodyFile *os.File) {
-	browserWinid = -1
-	var browserBody *os.File
-	file, err := os.Open(fmt.Sprintf("/mnt/acme/%d/event", winid))
+func readPlaylistEvents() {
+	file, err := os.Open(fmt.Sprintf("/mnt/acme/%d/event", playlistWinid))
 	if err != nil {
 		panic(err)
 	}
@@ -318,170 +322,7 @@ func readEvents(winid int, bodyFile *os.File) {
 	for !quit && scanner.Scan() {
 		evt, parsed := parseEvent(scanner.Text())
 		if parsed {
-			if evt.middlemouse {
-				switch evt.text {
-				case "Quit":
-					quit = true
-					deleteWindow(winid)
-					if browserWinid != -1 {
-						deleteWindow(browserWinid)
-					}
-					os.Exit(0)
-				case "Play":
-					err := conn.Play(-1)
-					if mpdClosedConn(err) {
-						conn = createMpdConn()
-						conn.Play(-1)
-					}
-					refresh(winid, bodyFile, false)
-				case "Stop":
-					err := conn.Stop()
-					if mpdClosedConn(err) {
-						conn = createMpdConn()
-						conn.Stop()
-					}
-					refresh(winid, bodyFile, false)
-				case "Pause":
-					err := conn.Pause(true)
-					if mpdClosedConn(err) {
-						conn = createMpdConn()
-						conn.Pause(true)
-					}
-					refresh(winid, bodyFile, false)
-				case "Next":
-					err := conn.Next()
-					if mpdClosedConn(err) {
-						conn = createMpdConn()
-						conn.Next()
-					}
-					refresh(winid, bodyFile, false)
-				case "Clear":
-					err := conn.Clear()
-					if mpdClosedConn(err) {
-						conn = createMpdConn()
-						conn.Clear()
-					}
-					refresh(winid, bodyFile, true)
-				case "Shuffle":
-					err := conn.Shuffle(-1, -1)
-					if mpdClosedConn(err) {
-						conn = createMpdConn()
-						conn.Shuffle(-1, -1)
-					}
-					refresh(winid, bodyFile, true)
-				case "Consume":
-					err := conn.Consume(true)
-					if mpdClosedConn(err) {
-						conn = createMpdConn()
-						conn.Consume(true)
-					}
-					refresh(winid, bodyFile, false)
-				case "NoConsume":
-					err := conn.Consume(false)
-					if mpdClosedConn(err) {
-						conn = createMpdConn()
-						conn.Consume(false)
-					}
-					refresh(winid, bodyFile, false)
-				case "Refresh":
-					refresh(winid, bodyFile, true)
-				case "Browse":
-					if browserWinid == -1 {
-						browserWinid, browserBody = createNewBrowser("/", winid, bodyFile)
-					} else {
-						currentPath = "/"
-						showBrowser(browserBody, currentPath, browserWinid)
-					}
-				default:
-					if strings.HasPrefix(evt.text, "Move") {
-						slices := strings.Fields(evt.text)
-						if len(slices) != 3 {
-							break // malformed Move <from> <to> command
-						}
-						i, err := strconv.Atoi(slices[1])
-						if err == nil {
-							u, err := strconv.Atoi(slices[2])
-							if err == nil {
-								err = conn.Move(i, -1, u)
-								if mpdClosedConn(err) {
-									conn = createMpdConn()
-									conn.Move(i, -1, u)
-								}
-								refresh(winid, bodyFile, true)
-							}
-						}
-					} else if strings.HasPrefix(evt.text, "Del") {
-						slices := strings.Fields(evt.text)
-						if len(slices) != 2 {
-							break // malformed Del <position>
-						}
-						i, err := strconv.Atoi(slices[1])
-						if err == nil {
-							err = conn.Delete(i, -1)
-							if mpdClosedConn(err) {
-								conn = createMpdConn()
-								conn.Delete(i, -1)
-							}
-							refresh(winid, bodyFile, true)
-						}
-					} else if strings.HasPrefix(evt.text, "rDel") {
-						slices := strings.Fields(evt.text)
-						if len(slices) != 3 {
-							break // malformed rDel <from> <to> command
-						}
-						i, err := strconv.Atoi(slices[1])
-						if err == nil {
-							u, err := strconv.Atoi(slices[2])
-							if err == nil {
-								err = conn.Delete(i, u)
-								if mpdClosedConn(err) {
-									conn = createMpdConn()
-									conn.Delete(i, u)
-								}
-							}
-							refresh(winid, bodyFile, true)
-						}
-					} else {
-						i, err := strconv.Atoi(evt.text)
-						if err == nil {
-							err = conn.Play(i)
-							if mpdClosedConn(err) {
-								conn = createMpdConn()
-								conn.Play(i)
-							}
-							refresh(winid, bodyFile, false)
-						}
-					}
-				}
-			} else {
-				i, err := strconv.Atoi(evt.text)
-				if err == nil {
-					attrs, err := conn.PlaylistInfo(i, -1)
-					if err != nil {
-						if mpdClosedConn(err) {
-							conn = createMpdConn()
-							attrs, err = conn.PlaylistInfo(i, -1)
-							if err != nil {
-								log.Fatal(err)
-							}
-						} else {
-							fmt.Println(err.Error())
-						}
-					}
-
-					slices := strings.Split(attrs[0]["file"], "/")
-					filePath := ""
-					for i := 0; i < (len(slices) - 1); i++ {
-						filePath += "/" + slices[i]
-					}
-					if browserWinid == -1 {
-						browserWinid, browserBody = createNewBrowser(filePath, winid, bodyFile)
-					} else {
-						currentPath = filePath
-						showBrowser(browserBody, currentPath, browserWinid)
-					}
-				}
-			}
+			handlePlaylistEvent(evt)
 		}
 	}
 
@@ -490,133 +331,310 @@ func readEvents(winid int, bodyFile *os.File) {
 	}
 }
 
-func createNewBrowser(filePath string, queueWinid int, queueBody *os.File) (int, *os.File) {
-	winid := createWindow()
+func handlePlaylistEvent(evt event) {
+	if evt.middlemouse {
+		switch evt.text {
+		case "Quit":
+			quit = true
+			deleteWindow(playlistWinid)
+			closeBrowser()
+			os.Exit(0)
+		case "Play":
+			err := conn.Play(-1)
+			if mpdClosedConn(err) {
+				conn = createMpdConn()
+				conn.Play(-1)
+			}
+			refresh(false)
+		case "Stop":
+			err := conn.Stop()
+			if mpdClosedConn(err) {
+				conn = createMpdConn()
+				conn.Stop()
+			}
+			refresh(false)
+		case "Pause":
+			err := conn.Pause(true)
+			if mpdClosedConn(err) {
+				conn = createMpdConn()
+				conn.Pause(true)
+			}
+			refresh(false)
+		case "Next":
+			err := conn.Next()
+			if mpdClosedConn(err) {
+				conn = createMpdConn()
+				conn.Next()
+			}
+			refresh(false)
+		case "Clear":
+			err := conn.Clear()
+			if mpdClosedConn(err) {
+				conn = createMpdConn()
+				conn.Clear()
+			}
+			refresh(true)
+		case "Shuffle":
+			err := conn.Shuffle(-1, -1)
+			if mpdClosedConn(err) {
+				conn = createMpdConn()
+				conn.Shuffle(-1, -1)
+			}
+			refresh(true)
+		case "Consume":
+			err := conn.Consume(true)
+			if mpdClosedConn(err) {
+				conn = createMpdConn()
+				conn.Consume(true)
+			}
+			refresh(false)
+		case "NoConsume":
+			err := conn.Consume(false)
+			if mpdClosedConn(err) {
+				conn = createMpdConn()
+				conn.Consume(false)
+			}
+			refresh(false)
+		case "Refresh":
+			refresh(true)
+		case "Browse":
+			if browserWinid < 0 {
+				createNewBrowser("/")
+			} else {
+				currentPath = "/"
+				showPathInBrowser(currentPath)
+			}
+		default:
+			if strings.HasPrefix(evt.text, "Move") {
+				slices := strings.Fields(evt.text)
+				if len(slices) != 3 {
+					return // malformed Move <from> <to> command
+				}
+				i, err := strconv.Atoi(slices[1])
+				if err == nil {
+					u, err := strconv.Atoi(slices[2])
+					if err == nil {
+						err = conn.Move(i, -1, u)
+						if mpdClosedConn(err) {
+							conn = createMpdConn()
+							conn.Move(i, -1, u)
+						}
+						refresh(true)
+					}
+				}
+			} else if strings.HasPrefix(evt.text, "Del") {
+				slices := strings.Fields(evt.text)
+				if len(slices) != 2 {
+					return // malformed Del <position>
+				}
+				i, err := strconv.Atoi(slices[1])
+				if err == nil {
+					err = conn.Delete(i, -1)
+					if mpdClosedConn(err) {
+						conn = createMpdConn()
+						conn.Delete(i, -1)
+					}
+					refresh(true)
+				}
+			} else if strings.HasPrefix(evt.text, "rDel") {
+				slices := strings.Fields(evt.text)
+				if len(slices) != 3 {
+					return // malformed rDel <from> <to> command
+				}
+				i, err := strconv.Atoi(slices[1])
+				if err == nil {
+					u, err := strconv.Atoi(slices[2])
+					if err == nil {
+						err = conn.Delete(i, u)
+						if mpdClosedConn(err) {
+							conn = createMpdConn()
+							conn.Delete(i, u)
+						}
+					}
+					refresh(true)
+				}
+			} else {
+				i, err := strconv.Atoi(evt.text)
+				if err == nil {
+					err = conn.Play(i)
+					if mpdClosedConn(err) {
+						conn = createMpdConn()
+						conn.Play(i)
+					}
+					refresh(false)
+				}
+			}
+		}
+	} else {
+		i, err := strconv.Atoi(evt.text)
+		if err == nil {
+			attrs, err := conn.PlaylistInfo(i, -1)
+			if err != nil {
+				if mpdClosedConn(err) {
+					conn = createMpdConn()
+					attrs, err = conn.PlaylistInfo(i, -1)
+					if err != nil {
+						log.Fatal(err)
+					}
+				} else {
+					fmt.Println(err.Error())
+				}
+			}
 
-	file, err := os.OpenFile(fmt.Sprintf("/mnt/acme/%d/body", winid), os.O_APPEND|os.O_WRONLY, 0600)
+			slices := strings.Split(attrs[0]["file"], "/")
+			filePath := ""
+			for i := 0; i < (len(slices) - 1); i++ {
+				filePath += "/" + slices[i]
+			}
+			if browserWinid < 0 {
+				createNewBrowser(filePath)
+			} else {
+				currentPath = filePath
+				showPathInBrowser(currentPath)
+			}
+		}
+	}
+}
+
+func closeBrowser() {
+	if browserWinid > -1 {
+		browserBodyFile.Close()
+		deleteWindow(browserWinid)
+		browserWinid = -1
+	}
+}
+
+func createNewBrowser(filePath string) {
+	var err error
+	browserWinid = createWindow()
+
+	browserBodyFile, err = os.OpenFile(fmt.Sprintf("/mnt/acme/%d/body", browserWinid), os.O_APPEND|os.O_WRONLY, 0600)
 	if err != nil {
 		panic(err)
 	}
-	writeName(winid, "browse:")
-	writeTags(winid, "Close Update Info ..")
-	if showBrowser(file, filePath, winid) {
+	writeName(browserWinid, "browse:")
+	writeTags(browserWinid, "Close Update Info ..")
+	if showPathInBrowser(filePath) {
 		currentPath = filePath
-	} else {
-		return -1, nil
 	}
-	go readBrowserEvents(winid, file, queueWinid, queueBody)
-	return winid, file
+	go readBrowserEvents()
 }
 
-func readBrowserEvents(winid int, bodyFile *os.File, queueWinid int, queueBody *os.File) {
-	file, err := os.Open(fmt.Sprintf("/mnt/acme/%d/event", winid))
+func readBrowserEvents() {
+	file, err := os.Open(fmt.Sprintf("/mnt/acme/%d/event", browserWinid))
 	if err != nil {
 		panic(err)
 	}
 	defer file.Close()
 
 	scanner := bufio.NewScanner(file)
-	for !quit && scanner.Scan() {
+	for browserWinid > -1 && scanner.Scan() {
 		evt, parsed := parseEvent(scanner.Text())
 		if parsed {
-			evt.text = convertFromPrint(evt.text)
-			if evt.middlemouse {
-				switch evt.text {
-				case "Close":
-					deleteWindow(winid)
-					browserWinid = -1
-					return
-				case "Update":
-					path := strings.Trim(currentPath, " /")
-					_, err := conn.Update(path)
-					fmt.Println("Updating")
-					if mpdClosedConn(err) {
-						conn = createMpdConn()
-						_, err = conn.Update(path)
-					}
-
-					if err != nil {
-						fmt.Fprintf(os.Stderr, "Failure to update path '%s': %s\n", path, err.Error())
-					}
-				default:
-					if strings.HasPrefix(evt.text, "Info") {
-						slices := strings.Fields(evt.text)
-						if len(slices) < 2 {
-							return // malformed Info <filePath>
-						}
-						relPath := ""
-						for i := 1; i < len(slices); i++ {
-							relPath += " " + slices[i]
-						}
-						filePath := strings.Trim(absPathFromRelPath(currentPath, relPath), " /")
-						cmd := exec.Command("songinfo", filePath)
-						newwinid := createWindow()
-						file, err := os.OpenFile(fmt.Sprintf("/mnt/acme/%d/body", newwinid), os.O_APPEND|os.O_WRONLY, 0600)
-						writeName(newwinid, "/tmp/songinfo")
-						writeTags(newwinid, "Delete")
-						if err != nil {
-							panic(err)
-						}
-						cmd.Stdout = file
-						err = cmd.Start()
-						if err != nil {
-							fmt.Println(err)
-						}
-						cmd.Wait()
-						file.Close()
-					} else {
-						filePath := strings.Trim(absPathFromRelPath(currentPath, evt.text), " /")
-						err := conn.Add(filePath)
-						if mpdClosedConn(err) {
-							conn = createMpdConn()
-							err = conn.Add(filePath)
-						}
-						if err == nil {
-							refresh(queueWinid, queueBody, true)
-						}
-					}
-				}
-			} else {
-				newPath := absPathFromRelPath(currentPath, evt.text)
-				// only change path on success
-				if showBrowser(bodyFile, newPath, winid) {
-					currentPath = newPath
-				}
-			}
+			handleBrowserEvent(evt)
 		}
 	}
 
-	if err := scanner.Err(); err != nil && !quit {
+	if err := scanner.Err(); err != nil {
 		panic(err)
 	}
 }
 
-func refresh(winid int, bodyFile *os.File, full bool) {
-	if full {
-		clearBody(winid, bodyFile)
-		showPlaylist(bodyFile)
+func handleBrowserEvent(evt event) {
+	evt.text = convertFromPrint(evt.text)
+	if evt.middlemouse {
+		switch evt.text {
+		case "Close":
+			closeBrowser()
+			return
+		case "Update":
+			path := strings.Trim(currentPath, " /")
+			_, err := conn.Update(path)
+			fmt.Println("Updating")
+			if mpdClosedConn(err) {
+				conn = createMpdConn()
+				_, err = conn.Update(path)
+			}
+
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Failure to update path '%s': %s\n", path, err.Error())
+			}
+		default:
+			if strings.HasPrefix(evt.text, "Info") {
+				slices := strings.Fields(evt.text)
+				if len(slices) < 2 {
+					return // malformed Info <filePath>
+				}
+				relPath := ""
+				for i := 1; i < len(slices); i++ {
+					relPath += " " + slices[i]
+				}
+				filePath := strings.Trim(absPathFromRelPath(currentPath, relPath), " /")
+				cmd := exec.Command("songinfo", filePath)
+				newbrowserWinid := createWindow()
+				file, err := os.OpenFile(fmt.Sprintf("/mnt/acme/%d/body", newbrowserWinid), os.O_APPEND|os.O_WRONLY, 0600)
+				writeName(newbrowserWinid, "/tmp/songinfo")
+				writeTags(newbrowserWinid, "Delete")
+				if err != nil {
+					panic(err)
+				}
+				cmd.Stdout = file
+				err = cmd.Start()
+				if err != nil {
+					fmt.Println(err)
+				}
+				cmd.Wait()
+				file.Close()
+			} else {
+				filePath := strings.Trim(absPathFromRelPath(currentPath, evt.text), " /")
+				err := conn.Add(filePath)
+				if mpdClosedConn(err) {
+					conn = createMpdConn()
+					err = conn.Add(filePath)
+				}
+				if err == nil {
+					refresh(true)
+				}
+			}
+		}
+	} else {
+		newPath := absPathFromRelPath(currentPath, evt.text)
+		// only change path on success
+		if showPathInBrowser(newPath) {
+			currentPath = newPath
+		}
 	}
-	showStatus(bodyFile, !full)
+}
+
+func refresh(full bool) {
+	if full {
+		clearBody(playlistWinid, playlistBodyFile)
+		showPlaylist()
+	}
+	showStatus(!full)
 }
 
 func main() {
+	var err error
+
+	browserWinid = -1
 	quit = false
 	conn = createMpdConn()
 	defer conn.Close()
 
-	winid := createWindow()
+	playlistWinid = createWindow()
 
-	file, err := os.OpenFile(fmt.Sprintf("/mnt/acme/%d/body", winid), os.O_APPEND|os.O_WRONLY, 0600)
+	playlistBodyFile, err = os.OpenFile(fmt.Sprintf("/mnt/acme/%d/body", playlistWinid), os.O_APPEND|os.O_WRONLY, 0600)
 	if err != nil {
 		panic(err)
 	}
-	writeName(winid, "samc:")
-	writeTags(winid, "Quit Clear Play Pause Stop Next Browse Refresh")
+	writeName(playlistWinid, "samc:")
+	writeTags(playlistWinid, "Quit Clear Play Pause Stop Next Browse Refresh")
 
-	showPlaylist(file)
-	showStatus(file, false)
+	showPlaylist()
+	showStatus(false)
 
-	readEvents(winid, file)
+	readPlaylistEvents()
 
-	file.Close()
+	playlistBodyFile.Close()
 }
