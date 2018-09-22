@@ -695,17 +695,22 @@ func handleBrowserEvent(evt event) {
 				cmd.Wait()
 				file.Close()
 			} else {
-				var err error
+				// used to track how many songs/dirs were successfully added
+				// (if at least one was added we are going to refresh playlist view)
+				added := 0
 				relFilePaths := strings.Split(evt.text, "\n")
 				for i := 0; i < len(relFilePaths); i++ {
 					filePath := strings.Trim(absPathFromRelPath(currentPath, relFilePaths[i]), " /")
-					err = conn.Add(filePath)
+					err := conn.Add(filePath)
 					if i == 0 && mpdClosedConn(err) {
 						conn = createMpdConn()
 						err = conn.Add(filePath)
 					}
+					if err == nil {
+						added++
+					}
 				}
-				if err == nil {
+				if added > 0 {
 					refresh(true)
 				}
 			}
