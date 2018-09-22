@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"github.com/fhs/gompd/mpd"
+	"io"
 	"io/ioutil"
 	"log"
 	"os"
@@ -27,6 +28,9 @@ type event struct {
 	middlemouse bool
 	text        string
 }
+
+// this is the limit for the text that appears in event file (see acme(4))
+const eventtextlimit = 256
 
 func createMpdConn() *mpd.Client {
 	mpdHost, hostEnvSet := os.LookupEnv("MPD_HOST")
@@ -137,6 +141,15 @@ func mpdClosedConn(err error) bool {
 		strings.Contains(err.Error(), "Hangup") ||
 		strings.Contains(err.Error(), "broken pipe")
 
+}
+
+func setDataAddr(winid int, addr string) {
+	file, err := os.OpenFile(fmt.Sprintf("/mnt/acme/%d/addr", winid), os.O_APPEND|os.O_WRONLY, 0600)
+	if err != nil {
+		panic(err)
+	}
+	file.WriteString(addr)
+	file.Close()
 }
 
 func writeName(winid int, name string) {
@@ -521,23 +534,120 @@ func createNewBrowser(filePath string) {
 }
 
 func readBrowserEvents() {
+	fieldsRead := 0
+	field := ""
+	ismouseevt := false
+	evt := event{false, ""}
+
+	// needed for getting runes from data file (if event text >= eventtextlimit)
+	startaddr := -1
+	endaddr := -1
+
 	file, err := os.Open(fmt.Sprintf("/mnt/acme/%d/event", browserWinid))
 	if err != nil {
 		panic(err)
 	}
 	defer file.Close()
 
-	scanner := bufio.NewScanner(file)
-	for browserWinid > -1 && scanner.Scan() {
-		evt, parsed := parseEvent(scanner.Text())
-		if parsed {
-			handleBrowserEvent(evt)
+	eventReader := bufio.NewReader(file)
+	for browserWinid > 0 {
+		rune, _, err := eventReader.ReadRune()
+
+		if err != nil {
+			panic(err)
+		}
+
+		runestr := string(rune)
+		switch runestr {
+		case "\n":
+			field = ""
+			fieldsRead = 0
+			ismouseevt = false
+			evt.text = ""
+			startaddr = -1
+			endaddr = -1
+		case " ":
+			fieldsRead++
+			if fieldsRead == 1 {
+				if len(field) > 2 {
+					if field[0] == 'M' {
+						if field[1] == 'x' || field[1] == 'X' {
+							evt.middlemouse = true
+							ismouseevt = true
+						} else if field[1] == 'l' || field[1] == 'L' {
+							evt.middlemouse = false
+							ismouseevt = true
+						}
+					}
+
+					if ismouseevt {
+						startaddr, err = strconv.Atoi(field[2:])
+						if err != nil {
+							startaddr = -1
+						}
+					}
+				}
+			} else if fieldsRead == 2 {
+				endaddr, err = strconv.Atoi(field)
+				if err != nil {
+					endaddr = -1
+				}
+			} else if ismouseevt && fieldsRead == 4 {
+				utflen, err := strconv.Atoi(field)
+				if err == nil {
+					if utflen > 0 {
+						for i := 0; i < utflen; i++ {
+							rune, _, err := eventReader.ReadRune()
+							if err != nil {
+								panic(err)
+							}
+
+							evt.text += string(rune)
+						}
+						handleBrowserEvent(evt)
+					} else if utflen == 0 {
+						runecount := endaddr - startaddr
+						if runecount < eventtextlimit || endaddr < 0 || startaddr < 0 {
+							continue
+						}
+						evt.text = runesFromDataFile(browserWinid, startaddr, endaddr)
+						handleBrowserEvent(evt)
+					}
+				}
+			}
+			field = ""
+		default:
+			field += runestr
 		}
 	}
+}
 
-	if err := scanner.Err(); err != nil {
+func runesFromDataFile(winid int, start int, end int) string {
+	runes := ""
+	count := end - start
+	setDataAddr(browserWinid, fmt.Sprintf("#%d", start))
+
+	datafile, err := os.Open(fmt.Sprintf("/mnt/acme/%d/data", winid))
+	if err != nil {
 		panic(err)
 	}
+	defer datafile.Close()
+
+	r := bufio.NewReader(datafile)
+
+	for i := 0; i < count; i++ {
+		rune, _, err := r.ReadRune()
+		if err != nil {
+			if err == io.EOF {
+				break
+			} else {
+				panic(err)
+			}
+		}
+
+		runes += string(rune)
+	}
+	return runes
 }
 
 func handleBrowserEvent(evt event) {
@@ -586,11 +696,15 @@ func handleBrowserEvent(evt event) {
 				cmd.Wait()
 				file.Close()
 			} else {
-				filePath := strings.Trim(absPathFromRelPath(currentPath, evt.text), " /")
-				err := conn.Add(filePath)
-				if mpdClosedConn(err) {
-					conn = createMpdConn()
+				var err error
+				relFilePaths := strings.Split(evt.text, "\n")
+				for i := 0; i < len(relFilePaths); i++ {
+					filePath := strings.Trim(absPathFromRelPath(currentPath, relFilePaths[i]), " /")
 					err = conn.Add(filePath)
+					if i == 0 && mpdClosedConn(err) {
+						conn = createMpdConn()
+						err = conn.Add(filePath)
+					}
 				}
 				if err == nil {
 					refresh(true)
@@ -598,7 +712,7 @@ func handleBrowserEvent(evt event) {
 			}
 		}
 	} else {
-		newPath := absPathFromRelPath(currentPath, evt.text)
+		newPath := absPathFromRelPath(currentPath, strings.Trim(evt.text, " "))
 		// only change path on success
 		if showPathInBrowser(newPath) {
 			currentPath = newPath
