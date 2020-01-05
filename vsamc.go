@@ -260,6 +260,12 @@ func showPathInBrowser(uri string) bool {
 		}
 	}
 
+	// is path a file? if yes show info
+	if len(attrs) == 1 && trimmedPath == attrs[0]["file"] {
+		showInfo(trimmedPath)
+		return false
+	}
+
 	clearBody(browserWinid, browserBodyFile)
 	browserBodyFile.WriteString(fmt.Sprintf("current path: /%s\n", convertForPrint(trimmedPath)))
 	for _, attr := range attrs {
@@ -346,7 +352,7 @@ func readPlaylistEvents() {
 func handlePlaylistEvent(evt event) {
 	if evt.middlemouse {
 		switch evt.text {
-		case "Quit":
+		case "Del":
 			deleteWindow(playlistWinid)
 			playlistWinid = -1
 			closeBrowser()
@@ -434,10 +440,10 @@ func handlePlaylistEvent(evt event) {
 						refresh(true)
 					}
 				}
-			} else if strings.HasPrefix(evt.text, "Del") {
+			} else if strings.HasPrefix(evt.text, "Rm") {
 				slices := strings.Fields(evt.text)
 				if len(slices) != 2 {
-					return // malformed Del <position>
+					return // malformed Rm <position>
 				}
 				i, err := strconv.Atoi(slices[1])
 				if err == nil {
@@ -448,10 +454,10 @@ func handlePlaylistEvent(evt event) {
 					}
 					refresh(true)
 				}
-			} else if strings.HasPrefix(evt.text, "rDel") {
+			} else if strings.HasPrefix(evt.text, "rRm") {
 				slices := strings.Fields(evt.text)
 				if len(slices) != 3 {
-					return // malformed rDel <from> <to> command
+					return // malformed rRm <from> <to> command
 				}
 				i, err := strconv.Atoi(slices[1])
 				if err == nil {
@@ -465,6 +471,8 @@ func handlePlaylistEvent(evt event) {
 					}
 					refresh(true)
 				}
+			} else if strings.HasPrefix(evt.text, "Search") {
+				handleSearchEvent(evt.text)
 			} else {
 				i, err := strconv.Atoi(evt.text)
 				if err == nil {
@@ -525,9 +533,13 @@ func createNewBrowser(filePath string) {
 		panic(err)
 	}
 	writeName(browserWinid, "browse:")
-	writeTags(browserWinid, "Close Update Info ..")
-	if showPathInBrowser(filePath) {
-		currentPath = filePath
+	writeTags(browserWinid, "Update .. Search")
+	if filePath != "" {
+		if showPathInBrowser(filePath) {
+			currentPath = filePath
+		}
+	} else {
+		currentPath = ""
 	}
 	go readBrowserEvents()
 }
@@ -649,11 +661,47 @@ func runesFromDataFile(winid int, start int, end int) string {
 	return runes
 }
 
+func handleSearchEvent(eventText string) {
+	slices := strings.Fields(eventText)
+	if len(slices) < 2 {
+		return // malformed Search <searchString>
+	}
+	searchString := strings.Join(slices[1:], " ")
+	attrs, err := conn.Search("title", searchString)
+	if err == nil {
+		if browserWinid < 0 {
+			createNewBrowser("")
+		}
+		clearBody(browserWinid, browserBodyFile)
+		for _, attr := range attrs {
+			browserBodyFile.WriteString(fmt.Sprintf("/%s\n", convertForPrint(attr["file"])))
+		}
+	}
+}
+
+func showInfo(path string) {
+	cmd := exec.Command("songinfo", path)
+	newbrowserWinid := createWindow()
+	file, err := os.OpenFile(fmt.Sprintf("/mnt/acme/%d/body", newbrowserWinid), os.O_APPEND|os.O_WRONLY, 0600)
+	writeName(newbrowserWinid, "/tmp/songinfo")
+	writeTags(newbrowserWinid, "Delete")
+	if err != nil {
+		panic(err)
+	}
+	cmd.Stdout = file
+	err = cmd.Start()
+	if err != nil {
+		fmt.Println(err)
+	}
+	cmd.Wait()
+	file.Close()
+}
+
 func handleBrowserEvent(evt event) {
 	evt.text = convertFromPrint(evt.text)
 	if evt.middlemouse {
 		switch evt.text {
-		case "Close":
+		case "Del":
 			closeBrowser()
 			return
 		case "Update":
@@ -674,26 +722,11 @@ func handleBrowserEvent(evt event) {
 				if len(slices) < 2 {
 					return // malformed Info <filePath>
 				}
-				relPath := ""
-				for i := 1; i < len(slices); i++ {
-					relPath += " " + slices[i]
-				}
+				relPath := strings.Join(slices[1:], " ")
 				filePath := strings.Trim(absPathFromRelPath(currentPath, relPath), " /")
-				cmd := exec.Command("songinfo", filePath)
-				newbrowserWinid := createWindow()
-				file, err := os.OpenFile(fmt.Sprintf("/mnt/acme/%d/body", newbrowserWinid), os.O_APPEND|os.O_WRONLY, 0600)
-				writeName(newbrowserWinid, "/tmp/songinfo")
-				writeTags(newbrowserWinid, "Delete")
-				if err != nil {
-					panic(err)
-				}
-				cmd.Stdout = file
-				err = cmd.Start()
-				if err != nil {
-					fmt.Println(err)
-				}
-				cmd.Wait()
-				file.Close()
+				showInfo(filePath)
+			} else if strings.HasPrefix(evt.text, "Search") {
+				handleSearchEvent(evt.text)
 			} else {
 				// used to track how many songs/dirs were successfully added
 				// (if at least one was added we are going to refresh playlist view)
@@ -748,7 +781,7 @@ func main() {
 		panic(err)
 	}
 	writeName(playlistWinid, "samc:")
-	writeTags(playlistWinid, "Quit Clear Play Pause Stop Next Browse Refresh")
+	writeTags(playlistWinid, "Clear Play Pause Stop Next Browse Refresh Search")
 
 	showPlaylist()
 	showStatus(false)
