@@ -19,7 +19,7 @@ var browserWinid int
 var playlistWinid int
 
 var browserBodyFile *os.File
-var playlistBodyFile *os.File
+var playlistDataFile *os.File
 
 var currentPath string
 
@@ -98,7 +98,17 @@ func createWindow() int {
 		panic(err)
 	}
 
+	setWindowToNoscroll(i)
 	return i
+}
+
+func setWindowToNoscroll(winid int) {
+	file, err := os.OpenFile(fmt.Sprintf("/mnt/acme/%d/ctl", winid), os.O_APPEND|os.O_WRONLY, 0600)
+	if err != nil {
+		panic(err)
+	}
+	file.WriteString("noscroll\n")
+	file.Close()
 }
 
 func deleteWindow(winid int) {
@@ -112,7 +122,7 @@ func deleteWindow(winid int) {
 
 func parseEvent(eventStr string) (event, bool) {
 	parsed := false
-	evt := event{false, "foo"}
+	var evt event
 
 	if eventStr != "" && eventStr[0] == 'M' {
 		if eventStr[1] == 'x' || eventStr[1] == 'X' {
@@ -281,6 +291,10 @@ func showPathInBrowser(uri string) bool {
 }
 
 func showPlaylist() {
+	setDataAddr(playlistWinid, "0,$")
+	playlistDataFile.WriteString("\n") // line for status information
+	playlistDataFile.WriteString("\n") // line for total playtime
+
 	attrs, err := conn.PlaylistInfo(-1, -1)
 	if err != nil {
 		if mpdClosedConn(err) {
@@ -303,18 +317,21 @@ func showPlaylist() {
 		minutes := duration / 60
 		seconds := duration % 60
 		if artist == "" || title == "" {
-			playlistBodyFile.WriteString(fmt.Sprintf("# %s # %s # %02d:%02d\n", attr["Pos"], attr["file"], minutes, seconds))
+			playlistDataFile.WriteString(fmt.Sprintf("# %s # %s # %02d:%02d\n", attr["Pos"], attr["file"], minutes, seconds))
 		} else {
-			playlistBodyFile.WriteString(fmt.Sprintf("# %s # %s - %s # %02d:%02d\n", attr["Pos"], attr["Artist"], attr["Title"], minutes, seconds))
+			playlistDataFile.WriteString(fmt.Sprintf("# %s # %s - %s # %02d:%02d\n", attr["Pos"], attr["Artist"], attr["Title"], minutes, seconds))
 		}
 	}
-	playlistBodyFile.WriteString(fmt.Sprintf("TOTAL: %d:%02d\n", total/60, total%60))
+	setDataAddr(playlistWinid, "2")
+	playlistDataFile.WriteString(fmt.Sprintf("TOTAL: %d:%02d\n", total/60, total%60))
 }
 
-func showStatus(refresh bool) {
-	if refresh {
-		playlistBodyFile.WriteString("\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b")
-	}
+func showStatus() {
+	remainingTime := 0
+	totalTime := 0
+
+	setDataAddr(playlistWinid, "1")
+
 	attrs, err := conn.Status()
 	if err != nil {
 		if mpdClosedConn(err) {
@@ -326,7 +343,19 @@ func showStatus(refresh bool) {
 		}
 	}
 
-	playlistBodyFile.WriteString(fmt.Sprintf("State: %-5s Song: %-5s Time: %-20s\n", attrs["state"], attrs["song"], attrs["time"]))
+	if(attrs["time"] != "") {
+		slices := strings.Split(attrs["time"], ":")
+		if len(slices) == 2 {
+			remainingTime, _ = strconv.Atoi(slices[0])
+			totalTime, _ = strconv.Atoi(slices[1])
+		}
+	}
+
+	if attrs["volume"] == "" {
+		playlistDataFile.WriteString(fmt.Sprintf("State: %s Song: %s Time: %d:%02d/%d:%02d\n", attrs["state"], attrs["song"], remainingTime / 60, remainingTime % 60, totalTime / 60, totalTime % 60))
+	} else {
+		playlistDataFile.WriteString(fmt.Sprintf("State: %s Song: %s Time: %d:%02d/%d:%02d Volume %s\n", attrs["state"], attrs["song"], remainingTime / 60, remainingTime % 60, totalTime / 60, totalTime % 60, attrs["volume"]))
+	}
 }
 
 func readPlaylistEvents() {
@@ -470,6 +499,20 @@ func handlePlaylistEvent(evt event) {
 						}
 					}
 					refresh(true)
+				}
+			} else if strings.HasPrefix(evt.text, "Volume") {
+				slices := strings.Fields(evt.text)
+				if len(slices) != 2 {
+					return // malformed Volume <volume>
+				}
+				i, err := strconv.Atoi(slices[1])
+				if err == nil && i >= 0 && i <= 100 {
+					err = conn.SetVolume(i)
+					if mpdClosedConn(err) {
+						conn = createMpdConn()
+						conn.SetVolume(i)
+					}
+					refresh(false)
 				}
 			} else if strings.HasPrefix(evt.text, "Search") {
 				handleSearchEvent(evt.text)
@@ -759,10 +802,11 @@ func handleBrowserEvent(evt event) {
 
 func refresh(full bool) {
 	if full {
-		clearBody(playlistWinid, playlistBodyFile)
 		showPlaylist()
+		showStatus()
+	} else {
+		showStatus()
 	}
-	showStatus(!full)
 }
 
 func main() {
@@ -776,17 +820,17 @@ func main() {
 
 	playlistWinid = createWindow()
 
-	playlistBodyFile, err = os.OpenFile(fmt.Sprintf("/mnt/acme/%d/body", playlistWinid), os.O_APPEND|os.O_WRONLY, 0600)
+	playlistDataFile, err = os.OpenFile(fmt.Sprintf("/mnt/acme/%d/data", playlistWinid), os.O_WRONLY|os.O_APPEND, 0600)
 	if err != nil {
 		panic(err)
 	}
+	defer playlistDataFile.Close()
+
 	writeName(playlistWinid, "samc:")
 	writeTags(playlistWinid, "Clear Play Pause Stop Next Browse Refresh Search")
 
 	showPlaylist()
-	showStatus(false)
+	showStatus()
 
 	readPlaylistEvents()
-
-	playlistBodyFile.Close()
 }
