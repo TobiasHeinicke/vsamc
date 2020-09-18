@@ -98,17 +98,7 @@ func createWindow() int {
 		panic(err)
 	}
 
-	setWindowToNoscroll(i)
 	return i
-}
-
-func setWindowToNoscroll(winid int) {
-	file, err := os.OpenFile(fmt.Sprintf("/mnt/acme/%d/ctl", winid), os.O_APPEND|os.O_WRONLY, 0600)
-	if err != nil {
-		panic(err)
-	}
-	file.WriteString("noscroll\n")
-	file.Close()
 }
 
 func deleteWindow(winid int) {
@@ -161,12 +151,14 @@ func setDataAddr(winid int, addr string) {
 	file.Close()
 }
 
-func writeName(winid int, name string) {
+func writeNameSetProps(winid int, name string) {
 	file, err := os.OpenFile(fmt.Sprintf("/mnt/acme/%d/ctl", winid), os.O_APPEND|os.O_WRONLY, 0600)
 	if err != nil {
 		panic(err)
 	}
 	file.WriteString(fmt.Sprintf("name %s\n", name))
+	file.WriteString("scratch\n")
+	file.WriteString("noscroll\n")
 	file.Close()
 }
 
@@ -575,7 +567,7 @@ func createNewBrowser(filePath string) {
 	if err != nil {
 		panic(err)
 	}
-	writeName(browserWinid, "browse:")
+	writeNameSetProps(browserWinid, "browse:")
 	writeTags(browserWinid, "Update .. Search")
 	if filePath != "" {
 		if showPathInBrowser(filePath) {
@@ -726,7 +718,7 @@ func showInfo(path string) {
 	cmd := exec.Command("songinfo", path)
 	newbrowserWinid := createWindow()
 	file, err := os.OpenFile(fmt.Sprintf("/mnt/acme/%d/body", newbrowserWinid), os.O_APPEND|os.O_WRONLY, 0600)
-	writeName(newbrowserWinid, "/tmp/songinfo")
+	writeNameSetProps(newbrowserWinid, "songinfo:")
 	writeTags(newbrowserWinid, "Delete")
 	if err != nil {
 		panic(err)
@@ -826,7 +818,7 @@ func main() {
 	}
 	defer playlistDataFile.Close()
 
-	writeName(playlistWinid, "samc:")
+	writeNameSetProps(playlistWinid, "samc:")
 	writeTags(playlistWinid, "Clear Play Pause Stop Next Browse Refresh Search")
 
 	showPlaylist()
