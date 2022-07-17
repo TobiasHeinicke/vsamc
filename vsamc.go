@@ -220,6 +220,7 @@ func convertForPrint(path string) string {
 	s = strings.Replace(s, "#", "﹟", -1)
 	s = strings.Replace(s, "{", "﹛", -1)
 	s = strings.Replace(s, "}", "﹜", -1)
+	s = strings.Replace(s, "~", "˜", -1)
 	return s
 }
 
@@ -244,6 +245,7 @@ func convertFromPrint(s string) string {
 	path = strings.Replace(path, "﹟", "#", -1)
 	path = strings.Replace(path, "﹛", "{", -1)
 	path = strings.Replace(path, "﹜", "}", -1)
+	path = strings.Replace(path, "˜", "~", -1)
 	return path
 }
 
@@ -335,7 +337,7 @@ func showStatus() {
 		}
 	}
 
-	if(attrs["time"] != "") {
+	if attrs["time"] != "" {
 		slices := strings.Split(attrs["time"], ":")
 		if len(slices) == 2 {
 			remainingTime, _ = strconv.Atoi(slices[0])
@@ -344,9 +346,9 @@ func showStatus() {
 	}
 
 	if attrs["volume"] == "" {
-		playlistDataFile.WriteString(fmt.Sprintf("State: %s Song: %s Time: %d:%02d/%d:%02d\n", attrs["state"], attrs["song"], remainingTime / 60, remainingTime % 60, totalTime / 60, totalTime % 60))
+		playlistDataFile.WriteString(fmt.Sprintf("State: %s Song: %s Time: %d:%02d/%d:%02d\n", attrs["state"], attrs["song"], remainingTime/60, remainingTime%60, totalTime/60, totalTime%60))
 	} else {
-		playlistDataFile.WriteString(fmt.Sprintf("State: %s Song: %s Time: %d:%02d/%d:%02d Volume %s\n", attrs["state"], attrs["song"], remainingTime / 60, remainingTime % 60, totalTime / 60, totalTime % 60, attrs["volume"]))
+		playlistDataFile.WriteString(fmt.Sprintf("State: %s Song: %s Time: %d:%02d/%d:%02d Volume %s\n", attrs["state"], attrs["song"], remainingTime/60, remainingTime%60, totalTime/60, totalTime%60, attrs["volume"]))
 	}
 }
 
@@ -461,36 +463,31 @@ func handlePlaylistEvent(evt event) {
 						refresh(true)
 					}
 				}
-			} else if strings.HasPrefix(evt.text, "Rm") {
+			} else if strings.HasPrefix(evt.text, "Delsong") {
 				slices := strings.Fields(evt.text)
-				if len(slices) != 2 {
-					return // malformed Rm <position>
-				}
-				i, err := strconv.Atoi(slices[1])
-				if err == nil {
-					err = conn.Delete(i, -1)
-					if mpdClosedConn(err) {
-						conn = createMpdConn()
-						conn.Delete(i, -1)
-					}
-					refresh(true)
-				}
-			} else if strings.HasPrefix(evt.text, "rRm") {
-				slices := strings.Fields(evt.text)
-				if len(slices) != 3 {
-					return // malformed rRm <from> <to> command
-				}
-				i, err := strconv.Atoi(slices[1])
-				if err == nil {
-					u, err := strconv.Atoi(slices[2])
+				if len(slices) == 2 {
+					i, err := strconv.Atoi(slices[1])
 					if err == nil {
-						err = conn.Delete(i, u)
+						err = conn.Delete(i, -1)
 						if mpdClosedConn(err) {
 							conn = createMpdConn()
-							conn.Delete(i, u)
+							conn.Delete(i, -1)
 						}
+						refresh(true)
 					}
-					refresh(true)
+				} else if len(slices) == 3 {
+					i, err := strconv.Atoi(slices[1])
+					if err == nil {
+						u, err := strconv.Atoi(slices[2])
+						if err == nil {
+							err = conn.Delete(i, u)
+							if mpdClosedConn(err) {
+								conn = createMpdConn()
+								conn.Delete(i, u)
+							}
+						}
+						refresh(true)
+					}
 				}
 			} else if strings.HasPrefix(evt.text, "Volume") {
 				slices := strings.Fields(evt.text)
@@ -819,7 +816,7 @@ func main() {
 	defer playlistDataFile.Close()
 
 	writeNameSetProps(playlistWinid, "samc:")
-	writeTags(playlistWinid, "Clear Play Pause Stop Next Browse Refresh Search")
+	writeTags(playlistWinid, "Clear Play Pause Stop Next Browse Refresh Search Delsong")
 
 	showPlaylist()
 	showStatus()
